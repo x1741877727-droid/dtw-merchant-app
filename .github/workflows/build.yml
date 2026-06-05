@@ -48,11 +48,14 @@ jobs:
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
-          set -e
+          set -ex
           VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
           BUNDLE=src-tauri/target/release/bundle/nsis
+          echo "=== bundle 目录内容(诊断) ==="; ls -la "$BUNDLE" || true
           EXE=$(ls $BUNDLE/*-setup.exe | head -1)
-          SIG=$(cat "$EXE.sig" | tr -d '\n')
+          SIGFILE="${EXE}.sig"
+          if [ ! -f "$SIGFILE" ]; then SIGFILE=$(ls "$BUNDLE"/*.sig 2>/dev/null | head -1); fi
+          SIG=$(tr -d '\n' < "$SIGFILE")
           PUB_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           # 中文产品名 → URL 编码麻烦，统一拷成固定 ASCII 名上传
           cp "$EXE" dtw-merchant-setup.exe
