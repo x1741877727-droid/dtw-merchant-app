@@ -47,14 +47,21 @@ window.__DTW_DESKTOP__ = true;
   function authToken() { try { return (JSON.parse(localStorage.getItem('dtw_auth') || '{}') || {}).token || ''; } catch (e) { return ''; } }
   function curMid() { try { return localStorage.getItem('dtw_last_workspace_id') || ''; } catch (e) { return ''; } }
   function ding() {
+    // 两声"叮咚"（高→低，钟鸣感），类微信但不一样
     try {
       var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
-      var c = new AC(), o = c.createOscillator(), g = c.createGain();
-      o.type = 'sine'; o.frequency.value = 880; o.connect(g); g.connect(c.destination);
-      g.gain.setValueAtTime(0.0001, c.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.35, c.currentTime + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.35);
-      o.start(); o.stop(c.currentTime + 0.36);
+      var c = new AC();
+      function tone(freq, start, dur, peak) {
+        var o = c.createOscillator(), g = c.createGain();
+        o.type = 'sine'; o.frequency.value = freq; o.connect(g); g.connect(c.destination);
+        var t0 = c.currentTime + start;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(peak, t0 + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        o.start(t0); o.stop(t0 + dur + 0.02);
+      }
+      tone(988, 0.00, 0.18, 0.38); // 叮（B5）
+      tone(740, 0.15, 0.52, 0.42); // 咚（F#5，余韵略长）
     } catch (e) {}
   }
   function notify(title, body) {
