@@ -2,11 +2,15 @@
 // 多 webview：顶部独立标题栏(整条可拖) + 下方商户后台内容区，互不重叠。
 // 固定窗口大小、无系统边框；保存(如海报)用原生"另存为"对话框。
 
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::{DownloadEvent, WebviewBuilder};
 use tauri::window::WindowBuilder;
-use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl};
+use tauri::{LogicalPosition, LogicalSize, Listener, Manager, WebviewUrl};
 use tauri_plugin_dialog::DialogExt;
 
 // 让窗口显示并聚焦（托盘点击 / 菜单"显示"用）
@@ -15,6 +19,28 @@ fn show_main(app: &tauri::AppHandle) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+    }
+}
+
+// 托盘悬浮提示：未读消息数 + 发信人名字（最多 5 个）
+fn build_tooltip(count: i64, names: Option<&serde_json::Value>) -> String {
+    if count <= 0 {
+        return "极序排队 · 商户端".to_string();
+    }
+    let who = names
+        .and_then(|n| n.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .take(5)
+                .collect::<Vec<_>>()
+                .join("、")
+        })
+        .unwrap_or_default();
+    if who.is_empty() {
+        format!("{} 条新消息", count)
+    } else {
+        format!("{} 条新消息：{}", count, who)
     }
 }
 
@@ -74,6 +100,10 @@ window.__DTW_DESKTOP__ = true;
     } catch (e) {}
   }
   function alertNew(title, body) { notify(title, body); ding(); }
+  // 把未读数 + 发信人名字推给原生托盘（驱动闪烁 + 悬浮看是谁）
+  function emitTray(count, names) {
+    try { var E = window.__TAURI__ && window.__TAURI__.event; if (E) E.emit('dtw://tray', { count: count, names: names || [] }); } catch (e) {}
+  }
   function poll() {
     var t = authToken(), m = curMid(); if (!t || !m) return;
     var h = { 'Authorization': 'Bearer ' + t };
@@ -88,6 +118,16 @@ window.__DTW_DESKTOP__ = true;
       var u = typeof d.merchant_unread_count === 'number' ? d.merchant_unread_count : 0;
       if (lastUnread !== null && u > lastUnread) { alertNew('新消息', '有顾客给你发来消息'); }
       lastUnread = u;
+      // 托盘闪烁 + 悬浮看是谁：有未读就拉一次未读会话拿发信人名字，没有就清零
+      if (u > 0) {
+        fetch('/api/b/' + m + '/im/conversations?has_unread=1', { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).then(function (cd) {
+          var names = [];
+          if (cd && cd.conversations) { names = cd.conversations.map(function (cv) { return (cv && (cv.user_name || cv.title)) || '顾客'; }).slice(0, 5); }
+          emitTray(u, names);
+        }).catch(function () { emitTray(u, []); });
+      } else {
+        emitTray(0, []);
+      }
     }).catch(function () {});
   }
   function start() { if (started) return; started = true; poll(); setInterval(poll, 12000); }
@@ -184,6 +224,54 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // 托盘"像 QQ/微信"那样：未读时图标闪烁 + 悬浮看是谁。
+            // 内容 webview 轮询后 emit `dtw://tray` {count, names}；这里收事件 → 更新悬浮提示 + 驱动闪烁。
+            let di = app.default_window_icon().unwrap();
+            let normal_icon = Image::new_owned(di.rgba().to_vec(), di.width(), di.height());
+            let blank_icon = Image::new_owned(
+                vec![0u8; (di.width() * di.height() * 4) as usize],
+                di.width(),
+                di.height(),
+            );
+            let unread = Arc::new(AtomicI64::new(0));
+
+            // 收事件：存未读数 + 设悬浮提示（含发信人名字）
+            let h_listen = app.handle().clone();
+            let unread_l = unread.clone();
+            app.listen("dtw://tray", move |event| {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(event.payload()) {
+                    let count = v.get("count").and_then(|x| x.as_i64()).unwrap_or(0);
+                    unread_l.store(count, Ordering::Relaxed);
+                    if let Some(tray) = h_listen.tray_by_id("main-tray") {
+                        let _ = tray.set_tooltip(Some(build_tooltip(count, v.get("names"))));
+                    }
+                }
+            });
+
+            // 闪烁线程：未读>0 时图标在「正常 / 空白」间切换；归零后复位常显。
+            let h_blink = app.handle().clone();
+            let unread_b = unread.clone();
+            std::thread::spawn(move || {
+                let mut on = true;
+                loop {
+                    std::thread::sleep(Duration::from_millis(550));
+                    let count = unread_b.load(Ordering::Relaxed);
+                    if let Some(tray) = h_blink.tray_by_id("main-tray") {
+                        if count > 0 {
+                            on = !on;
+                            let _ = tray.set_icon(Some(if on {
+                                normal_icon.clone()
+                            } else {
+                                blank_icon.clone()
+                            }));
+                        } else if !on {
+                            on = true;
+                            let _ = tray.set_icon(Some(normal_icon.clone()));
+                        }
+                    }
+                }
+            });
 
             Ok(())
         })
