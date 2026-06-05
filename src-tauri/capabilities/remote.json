@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-notify",
+  "description": "允许远程商户后台(duitaofang.cn)发系统通知——新排队/新消息提醒",
+  "webviews": ["content"],
+  "remote": {
+    "urls": ["https://duitaofang.cn", "https://*.duitaofang.cn"]
+  },
+  "permissions": [
+    "notification:default",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "notification:allow-notify"
+  ]
+}

@@ -22,10 +22,11 @@ const WIN_W: f64 = 1280.0;
 const WIN_H: f64 = 800.0;
 const TB_H: f64 = 34.0; // 标题栏高度
 
-// 内容页(商户后台)注入：① 桌面标记；② 禁用网页式文本选择/拖拽（native app 体感，输入框仍可选）。
+// 内容页(商户后台)注入：① 桌面标记；② 禁用网页式文本选择；③ 新排队/新消息原生通知 + 提示音。
 const CONTENT_INIT_JS: &str = r#"
 window.__DTW_DESKTOP__ = true;
 (function () {
+  // ① 禁用网页式文本选择/拖拽（输入框仍可选）
   function inject() {
     if (document.getElementById('__dtw_noselect')) return;
     if (!document.head && !document.documentElement) return;
@@ -40,6 +41,50 @@ window.__DTW_DESKTOP__ = true;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', inject);
   inject();
   setInterval(inject, 3000);
+
+  // ② 新排队 / 新消息 → 原生系统通知 + 提示音（桌面端轮询，复用后台已有接口）
+  var lastWaiting = null, lastUnread = null, started = false;
+  function authToken() { try { return (JSON.parse(localStorage.getItem('dtw_auth') || '{}') || {}).token || ''; } catch (e) { return ''; } }
+  function curMid() { try { return localStorage.getItem('dtw_last_workspace_id') || ''; } catch (e) { return ''; } }
+  function ding() {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      var c = new AC(), o = c.createOscillator(), g = c.createGain();
+      o.type = 'sine'; o.frequency.value = 880; o.connect(g); g.connect(c.destination);
+      g.gain.setValueAtTime(0.0001, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.35, c.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.35);
+      o.start(); o.stop(c.currentTime + 0.36);
+    } catch (e) {}
+  }
+  function notify(title, body) {
+    try {
+      var N = window.__TAURI__ && window.__TAURI__.notification; if (!N) return;
+      N.isPermissionGranted().then(function (g) {
+        if (g) { N.sendNotification({ title: title, body: body }); }
+        else { N.requestPermission().then(function (p) { if (p === 'granted') N.sendNotification({ title: title, body: body }); }); }
+      });
+    } catch (e) {}
+  }
+  function alertNew(title, body) { notify(title, body); ding(); }
+  function poll() {
+    var t = authToken(), m = curMid(); if (!t || !m) return;
+    var h = { 'Authorization': 'Bearer ' + t };
+    fetch('/api/b/' + m + '/queue/overview', { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (!d) return;
+      var w = (d.summary && typeof d.summary.waiting_count === 'number') ? d.summary.waiting_count : (typeof d.waiting_count === 'number' ? d.waiting_count : 0);
+      if (lastWaiting !== null && w > lastWaiting) { alertNew('新顾客排队', '有 ' + (w - lastWaiting) + ' 位新顾客取号，去看看'); }
+      lastWaiting = w;
+    }).catch(function () {});
+    fetch('/api/b/' + m + '/im/summary', { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (!d) return;
+      var u = typeof d.merchant_unread_count === 'number' ? d.merchant_unread_count : 0;
+      if (lastUnread !== null && u > lastUnread) { alertNew('新消息', '有顾客给你发来消息'); }
+      lastUnread = u;
+    }).catch(function () {});
+  }
+  function start() { if (started) return; started = true; poll(); setInterval(poll, 12000); }
+  var wait = setInterval(function () { if (authToken() && curMid()) { clearInterval(wait); start(); } }, 3000);
 })();
 "#;
 
