@@ -11,7 +11,37 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::webview::{DownloadEvent, WebviewBuilder};
 use tauri::window::WindowBuilder;
 use tauri::{LogicalPosition, LogicalSize, Listener, Manager, WebviewUrl};
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+use tauri_plugin_updater::UpdaterExt;
+
+// 启动检查更新：发现新版本 → 强制更新（弹原生框 → 下载安装 → 自动重启）。
+// 不更新就退不出这个流程（点掉提示框后立即开始装），保证所有商户都在最新版。
+fn check_update_and_force(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let updater = match app.updater() {
+            Ok(u) => u,
+            Err(_) => return,
+        };
+        if let Ok(Some(update)) = updater.check().await {
+            let ver = update.version.clone();
+            app.dialog()
+                .message(format!(
+                    "发现新版本 {}，需要更新后才能继续使用。点击确定开始更新，完成后会自动重启。",
+                    ver
+                ))
+                .title("有新版本")
+                .kind(MessageDialogKind::Info)
+                .blocking_show();
+            if update
+                .download_and_install(|_chunk, _total| {}, || {})
+                .await
+                .is_ok()
+            {
+                app.restart();
+            }
+        }
+    });
+}
 
 // 让窗口显示并聚焦（托盘点击 / 菜单"显示"用）
 fn show_main(app: &tauri::AppHandle) {
@@ -140,7 +170,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // 启动即检查更新：发现新版 → 强制更新（弹框必须更新 → 下载安装 → 重启）
+            check_update_and_force(app.handle().clone());
             // 固定大小、不可调、无边框、居中
             let window = WindowBuilder::new(app, "main")
                 .title("极序排队 · 商户端")
