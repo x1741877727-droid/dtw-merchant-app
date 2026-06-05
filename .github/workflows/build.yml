@@ -30,7 +30,7 @@ jobs:
         run: npx tauri icon app-icon.png
 
       - name: Build (Tauri NSIS installer)
-        run: npm run build
+        run: npm run tauri -- build --bundles nsis
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
@@ -64,8 +64,8 @@ jobs:
       - name: Generate app icons
         run: npx tauri icon app-icon.png
 
-      - name: Build (universal .dmg + .app)
-        run: npm run tauri -- build --target universal-apple-darwin
+      - name: Build (universal .dmg)
+        run: npm run tauri -- build --target universal-apple-darwin --bundles dmg
 
       - name: Upload macOS dmg
         uses: actions/upload-artifact@v4
