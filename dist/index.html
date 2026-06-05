@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>极序排队 · 商户端</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100vh;
+      background: linear-gradient(160deg, #2d5a47 0%, #21422e 100%);
+      color: #f5e9c7;
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-user-select: none; user-select: none;
+    }
+    .brand { font-size: 34px; font-weight: 800; letter-spacing: 0.04em; font-family: Georgia, "Songti SC", serif; }
+    .sub { margin-top: 10px; font-size: 13px; color: rgba(245,233,199,0.7); letter-spacing: 0.04em; }
+    .spin {
+      margin-top: 26px; width: 26px; height: 26px; border-radius: 999px;
+      border: 2px solid rgba(245,233,199,0.25); border-top-color: #f5e9c7;
+      animation: r 0.8s linear infinite;
+    }
+    @keyframes r { to { transform: rotate(360deg); } }
+    .err { margin-top: 22px; font-size: 12px; color: rgba(245,233,199,0.55); display: none; }
+    .retry {
+      margin-top: 14px; padding: 8px 18px; border-radius: 999px; cursor: pointer; display: none;
+      background: rgba(245,233,199,0.14); color: #f5e9c7; font-size: 13px; font-weight: 700; border: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="brand">极序排队</div>
+  <div class="sub">商户端 · 正在进入工作台…</div>
+  <div class="spin"></div>
+  <div class="err" id="err">连接失败，请检查网络后重试</div>
+  <button class="retry" id="retry" onclick="go()">重新进入</button>
+  <script>
+    var TARGET = 'https://duitaofang.cn';
+    function go() {
+      document.getElementById('err').style.display = 'none';
+      document.getElementById('retry').style.display = 'none';
+      // 替换当前历史，让"返回"不会回到 splash
+      window.location.replace(TARGET);
+    }
+    // 简短停留展示开屏，再进入后台
+    setTimeout(go, 500);
+    // 兜底：若 6s 后仍停在本页（极少数导航被拦），给重试入口
+    setTimeout(function () {
+      if (document.visibilityState !== 'hidden') {
+        document.querySelector('.spin').style.display = 'none';
+        document.getElementById('err').style.display = 'block';
+        document.getElementById('retry').style.display = 'inline-block';
+      }
+    }, 6000);
+  </script>
+</body>
+</html>

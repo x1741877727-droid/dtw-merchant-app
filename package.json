@@ -1,0 +1,15 @@
+{
+  "name": "dtw-merchant-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "极序排队 商户端（Tauri 桌面壳，加载 duitaofang.cn 商户后台）",
+  "scripts": {
+    "tauri": "tauri",
+    "icon": "tauri icon app-icon.png",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

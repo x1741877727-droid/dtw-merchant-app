@@ -1,0 +1,6 @@
+node_modules/
+package-lock.json
+src-tauri/target/
+src-tauri/gen/
+# 图标由 CI `npx tauri icon app-icon.png` 自动生成，不入库
+src-tauri/icons/
