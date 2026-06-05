@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; -webkit-user-select: none; user-select: none; }
+    body {
+      background: linear-gradient(180deg, #2d5a47, #21422e);
+      color: #f5e9c7;
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .bar { height: 100%; display: flex; align-items: stretch; }
+    /* 整条左侧都是拖动区（像正常标题栏，拖任意空白处都能移动窗口） */
+    .drag { flex: 1; display: flex; align-items: center; gap: 8px; padding-left: 12px; }
+    .logo { width: 18px; height: 18px; border-radius: 5px; background: rgba(245,233,199,0.14); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #f5e9c7; }
+    .ttl { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
+    .ctl { display: flex; align-items: stretch; }
+    .b { width: 46px; display: flex; align-items: center; justify-content: center; color: #cdbf95; font-size: 14px; cursor: pointer; }
+    .b:hover { background: rgba(255,255,255,0.10); color: #f5e9c7; }
+    .b.x:hover { background: #e5534b; color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <div class="drag" data-tauri-drag-region>
+      <div class="logo" data-tauri-drag-region>极</div>
+      <div class="ttl" data-tauri-drag-region>极序排队 · 商户端</div>
+    </div>
+    <div class="ctl">
+      <div class="b" id="min" title="最小化">—</div>
+      <div class="b x" id="close" title="关闭">✕</div>
+    </div>
+  </div>
+  <script>
+    var W = window.__TAURI__.window.getCurrentWindow();
+    document.getElementById('min').addEventListener('click', function () { W.minimize(); });
+    document.getElementById('close').addEventListener('click', function () { W.close(); });
+  </script>
+</body>
+</html>
