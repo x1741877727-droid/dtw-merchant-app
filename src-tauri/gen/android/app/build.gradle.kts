@@ -23,6 +23,10 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        // 极光推送（安卓原生顶部通知）
+        manifestPlaceholders["JPUSH_PKGNAME"] = "cn.duitaofang.merchant"
+        manifestPlaceholders["JPUSH_APPKEY"] = "7cfcd92de4edc5ac9037e17d"
+        manifestPlaceholders["JPUSH_CHANNEL"] = "developer-default"
     }
     buildTypes {
         getByName("debug") {
@@ -63,6 +67,7 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
+    implementation("cn.jiguang.sdk:jpush:5.7.0") // 极光推送（含 jcore，安卓原生顶部通知）
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")

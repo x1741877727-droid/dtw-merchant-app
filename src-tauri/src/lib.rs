@@ -20,7 +20,8 @@ use tauri::webview::{DownloadEvent, WebviewBuilder};
 #[cfg(desktop)]
 use tauri::window::WindowBuilder;
 #[cfg(desktop)]
-use tauri::{Listener, LogicalPosition, LogicalSize, Manager};
+use tauri::{Listener, LogicalPosition, LogicalSize};
+use tauri::Manager;
 use tauri::WebviewUrl;
 #[cfg(desktop)]
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -185,15 +186,54 @@ window.__DTW_DESKTOP__ = true;
 })();
 "#;
 
+// 移动端注入：把登录 token + 当前商户 id 周期性交给原生（供 Kotlin 前台服务后台轮询用）。
+#[cfg(mobile)]
+const MOBILE_INIT_JS: &str = r#"
+(function () {
+  function creds() {
+    try {
+      var a = JSON.parse(localStorage.getItem('dtw_auth') || '{}') || {};
+      return { token: a.token || '', mid: localStorage.getItem('dtw_last_workspace_id') || '' };
+    } catch (e) { return { token: '', mid: '' }; }
+  }
+  function push() {
+    var c = creds(); if (!c.token || !c.mid) return;
+    try { var inv = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke; if (inv) inv('set_push_creds', { token: c.token, mid: c.mid }); } catch (e) {}
+  }
+  setTimeout(push, 2000); setInterval(push, 10000);
+})();
+"#;
+
+// webview 把 token+mid 交给原生，写到 app 数据目录（多个候选目录都写一遍，规避 Tauri/Kotlin 路径口径差异）。
+#[tauri::command]
+fn set_push_creds(app: tauri::AppHandle, token: String, mid: String) {
+    let json = format!(
+        "{{\"token\":\"{}\",\"mid\":\"{}\"}}",
+        token.replace('"', "").replace('\\', ""),
+        mid.replace('"', "").replace('\\', "")
+    );
+    for dir in [
+        app.path().app_data_dir().ok(),
+        app.path().app_local_data_dir().ok(),
+        app.path().app_cache_dir().ok(),
+    ] {
+        if let Some(d) = dir {
+            let _ = std::fs::create_dir_all(&d);
+            let _ = std::fs::write(d.join("push_creds.json"), &json);
+        }
+    }
+}
+
 #[cfg(mobile)]
 fn setup_mobile(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    // 安卓：全屏单 webview 加载商户后台（顶部推送通知后续接极光/个推，走厂商通道）
+    // 安卓：全屏单 webview 加载商户后台；注入脚本把 token 桥接给原生后台服务做轮询通知。
     tauri::WebviewWindowBuilder::new(
         app,
         "main",
         WebviewUrl::External("https://duitaofang.cn".parse().unwrap()),
     )
     .title("极序排队商户端")
+    .initialization_script(MOBILE_INIT_JS)
     .build()?;
     Ok(())
 }
@@ -206,6 +246,7 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     builder
+        .invoke_handler(tauri::generate_handler![set_push_creds])
         .setup(|app| {
             #[cfg(desktop)]
             setup_desktop(app)?;
