@@ -1,11 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "商户端默认权限",
+  "description": "本地默认权限 + 窗口控制（自定义标题栏用）",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "core:window:default",
-    "core:webview:default"
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging"
   ]
 }
