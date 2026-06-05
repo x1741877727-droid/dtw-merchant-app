@@ -22,6 +22,27 @@ const WIN_W: f64 = 1280.0;
 const WIN_H: f64 = 800.0;
 const TB_H: f64 = 34.0; // 标题栏高度
 
+// 内容页(商户后台)注入：① 桌面标记；② 禁用网页式文本选择/拖拽（native app 体感，输入框仍可选）。
+const CONTENT_INIT_JS: &str = r#"
+window.__DTW_DESKTOP__ = true;
+(function () {
+  function inject() {
+    if (document.getElementById('__dtw_noselect')) return;
+    if (!document.head && !document.documentElement) return;
+    var s = document.createElement('style');
+    s.id = '__dtw_noselect';
+    s.textContent =
+      'html{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}'
+      + 'input,textarea,[contenteditable],[contenteditable="true"]{-webkit-user-select:text!important;user-select:text!important}'
+      + 'img,a{-webkit-user-drag:none}';
+    (document.head || document.documentElement).appendChild(s);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', inject);
+  inject();
+  setInterval(inject, 3000);
+})();
+"#;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -51,8 +72,8 @@ pub fn run() {
                     "content",
                     WebviewUrl::External("https://duitaofang.cn".parse().unwrap()),
                 )
-                // 注入桌面标记：网页据此隐藏"开启通知"网页提示、改走原生通知。
-                .initialization_script("window.__DTW_DESKTOP__ = true;")
+                // 注入桌面标记 + 禁用网页式文本选择（native app 不该能拖蓝高亮，输入框除外）。
+                .initialization_script(CONTENT_INIT_JS)
                 // 下载(如"保存海报图")：弹原生"另存为"对话框，用户选位置/文件名后保存。
                 .on_download(|webview, event| {
                     if let DownloadEvent::Requested { destination, .. } = event {
