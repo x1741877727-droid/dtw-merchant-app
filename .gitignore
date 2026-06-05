@@ -1,6 +1,7 @@
 node_modules/
 package-lock.json
 src-tauri/target/
-src-tauri/gen/
+# 只忽略自动生成的 schemas；gen/android(含自定义 Kotlin 前台服务)要入库，CI 才能直接构建
+src-tauri/gen/schemas/
 # 图标由 CI `npx tauri icon app-icon.png` 自动生成，不入库
 src-tauri/icons/

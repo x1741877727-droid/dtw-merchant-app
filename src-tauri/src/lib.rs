@@ -1,21 +1,35 @@
 // 极序排队 商户端 · Tauri 外壳
-// 多 webview：顶部独立标题栏(整条可拖) + 下方商户后台内容区，互不重叠。
-// 固定窗口大小、无系统边框；保存(如海报)用原生"另存为"对话框。
+// 桌面(desktop)：多 webview(标题栏+内容) + 系统托盘 + 强制自动更新。
+// 移动(Android)：全屏单 webview 加载商户后台 duitaofang.cn。
+// 用 cfg(desktop)/cfg(mobile) 分两套——桌面专用 API(托盘/多窗口/更新器)在安卓不可用。
 
+#[cfg(desktop)]
 use std::sync::atomic::{AtomicI64, Ordering};
+#[cfg(desktop)]
 use std::sync::Arc;
+#[cfg(desktop)]
 use std::time::Duration;
+#[cfg(desktop)]
 use tauri::image::Image;
+#[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem};
+#[cfg(desktop)]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+#[cfg(desktop)]
 use tauri::webview::{DownloadEvent, WebviewBuilder};
+#[cfg(desktop)]
 use tauri::window::WindowBuilder;
-use tauri::{LogicalPosition, LogicalSize, Listener, Manager, WebviewUrl};
+#[cfg(desktop)]
+use tauri::{Listener, LogicalPosition, LogicalSize, Manager};
+use tauri::WebviewUrl;
+#[cfg(desktop)]
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+#[cfg(desktop)]
 use tauri_plugin_updater::UpdaterExt;
 
 // 启动检查更新：发现新版本 → 强制更新（弹原生框 → 下载安装 → 自动重启）。
 // 不更新就退不出这个流程（点掉提示框后立即开始装），保证所有商户都在最新版。
+#[cfg(desktop)]
 fn check_update_and_force(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let updater = match app.updater() {
@@ -44,6 +58,7 @@ fn check_update_and_force(app: tauri::AppHandle) {
 }
 
 // 让窗口显示并聚焦（托盘点击 / 菜单"显示"用）
+#[cfg(desktop)]
 fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_window("main") {
         let _ = w.show();
@@ -53,6 +68,7 @@ fn show_main(app: &tauri::AppHandle) {
 }
 
 // 托盘悬浮提示：未读消息数 + 发信人名字（最多 5 个）
+#[cfg(desktop)]
 fn build_tooltip(count: i64, names: Option<&serde_json::Value>) -> String {
     if count <= 0 {
         return "极序排队 · 商户端".to_string();
@@ -74,11 +90,15 @@ fn build_tooltip(count: i64, names: Option<&serde_json::Value>) -> String {
     }
 }
 
+#[cfg(desktop)]
 const WIN_W: f64 = 1280.0;
+#[cfg(desktop)]
 const WIN_H: f64 = 800.0;
+#[cfg(desktop)]
 const TB_H: f64 = 34.0; // 标题栏高度
 
 // 内容页(商户后台)注入：① 桌面标记；② 禁用网页式文本选择；③ 新排队/新消息原生通知 + 提示音。
+#[cfg(desktop)]
 const CONTENT_INIT_JS: &str = r#"
 window.__DTW_DESKTOP__ = true;
 (function () {
@@ -165,17 +185,44 @@ window.__DTW_DESKTOP__ = true;
 })();
 "#;
 
+#[cfg(mobile)]
+fn setup_mobile(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // 安卓：全屏单 webview 加载商户后台（顶部推送通知后续接极光/个推，走厂商通道）
+    tauri::WebviewWindowBuilder::new(
+        app,
+        "main",
+        WebviewUrl::External("https://duitaofang.cn".parse().unwrap()),
+    )
+    .title("极序排队商户端")
+    .build()?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init());
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    builder
         .setup(|app| {
-            // 启动即检查更新：发现新版 → 强制更新（弹框必须更新 → 下载安装 → 重启）
-            check_update_and_force(app.handle().clone());
-            // 固定大小、不可调、无边框、居中
-            let window = WindowBuilder::new(app, "main")
+            #[cfg(desktop)]
+            setup_desktop(app)?;
+            #[cfg(mobile)]
+            setup_mobile(app)?;
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("运行 Tauri 应用出错");
+}
+
+#[cfg(desktop)]
+fn setup_desktop(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // 启动即检查更新：发现新版 → 强制更新（弹框必须更新 → 下载安装 → 重启）
+    check_update_and_force(app.handle().clone());
+    // 固定大小、不可调、无边框、居中
+    let window = WindowBuilder::new(app, "main")
                 .title("极序排队 · 商户端")
                 .inner_size(WIN_W, WIN_H)
                 .resizable(false)
@@ -306,8 +353,5 @@ pub fn run() {
                 }
             });
 
-            Ok(())
-        })
-        .run(tauri::generate_context!())
-        .expect("运行 Tauri 应用出错");
+    Ok(())
 }
