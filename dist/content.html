@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>极序排队</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; -webkit-user-select: none; user-select: none; }
+    body {
+      background: #f4f5f3;
+      color: #3a4a40;
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .box { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px; text-align: center; }
+    .spin {
+      width: 38px; height: 38px; border-radius: 50%;
+      border: 3px solid rgba(45,90,71,0.18); border-top-color: #2d5a47;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .brand { font-size: 15px; font-weight: 700; letter-spacing: .04em; color: #2d5a47; }
+    .msg { font-size: 13px; color: #8a938c; line-height: 1.6; max-width: 240px; }
+    .btn {
+      margin-top: 4px; border: 0; cursor: pointer;
+      background: #2d5a47; color: #f5e9c7;
+      font-size: 13px; font-weight: 600; letter-spacing: .03em;
+      padding: 9px 22px; border-radius: 8px;
+      font-family: inherit;
+    }
+    .btn:hover { background: #21422e; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="spin" id="spin"></div>
+    <div class="brand">极序排队 · 商户端</div>
+    <div class="msg" id="msg">正在连接…</div>
+    <button class="btn hidden" id="retry">重试</button>
+  </div>
+  <script>
+    (function () {
+      var REMOTE = 'https://duitaofang.cn/';
+      var spin = document.getElementById('spin');
+      var msg = document.getElementById('msg');
+      var btn = document.getElementById('retry');
+      var timer = null;
+      var probing = false;
+
+      function setConnecting() {
+        spin.classList.remove('hidden');
+        btn.classList.add('hidden');
+        msg.textContent = '正在连接…';
+      }
+      function setFailed() {
+        spin.classList.add('hidden');
+        btn.classList.remove('hidden');
+        msg.textContent = '网络连接失败，正在自动重试…\n请检查网络后稍候，或点下方重试';
+      }
+
+      // 探测：nginx/中转 可达即可（即使后端 502，静态首页仍会返回 → SPA 能加载）。
+      // 只有“整条链路都连不上”才会 reject，这时不跳转、继续重试，避免跳进白屏。
+      function probe() {
+        if (probing) return;
+        probing = true;
+        var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        var killed = false;
+        var to = setTimeout(function () { killed = true; if (ctrl) ctrl.abort(); }, 8000);
+        var opt = { mode: 'no-cors', cache: 'no-store' };
+        if (ctrl) opt.signal = ctrl.signal;
+        fetch(REMOTE + '?_p=' + Date.now(), opt).then(function () {
+          clearTimeout(to);
+          if (killed) { probing = false; scheduleRetry(); return; }
+          // 可达 → 跳转到真正的商户后台（之后由 React 自身的自愈逻辑接管页内异常）
+          window.location.replace(REMOTE);
+        }).catch(function () {
+          clearTimeout(to);
+          probing = false;
+          scheduleRetry();
+        });
+      }
+
+      function scheduleRetry() {
+        setFailed();
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function () { setConnecting(); probe(); }, 3000);
+      }
+
+      btn.addEventListener('click', function () {
+        if (timer) clearTimeout(timer);
+        setConnecting();
+        probe();
+      });
+
+      // 网络恢复事件 → 立刻重试一次（不等 3s 轮询）
+      window.addEventListener('online', function () {
+        if (timer) clearTimeout(timer);
+        setConnecting();
+        probe();
+      });
+
+      setConnecting();
+      probe();
+    })();
+  </script>
+</body>
+</html>

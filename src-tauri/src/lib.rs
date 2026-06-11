@@ -226,11 +226,12 @@ fn set_push_creds(app: tauri::AppHandle, token: String, mid: String) {
 
 #[cfg(mobile)]
 fn setup_mobile(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    // 安卓：全屏单 webview 加载商户后台；注入脚本把 token 桥接给原生后台服务做轮询通知。
+    // 安卓：全屏单 webview。先加载本地恢复页 content.html（探测到后台可达再跳转），
+    // 避免冷启动/网络抖动时直冲远程失败 → 永久白屏。注入脚本把 token 桥接给原生后台服务做轮询通知。
     tauri::WebviewWindowBuilder::new(
         app,
         "main",
-        WebviewUrl::External("https://duitaofang.cn".parse().unwrap()),
+        WebviewUrl::App("content.html".into()),
     )
     .title("极序排队商户端")
     .initialization_script(MOBILE_INIT_JS)
@@ -279,11 +280,13 @@ fn setup_desktop(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
                 LogicalSize::new(WIN_W, TB_H),
             )?;
 
-            // 内容 webview（商户后台，标题栏下方）
+            // 内容 webview（商户后台，标题栏下方）。
+            // 先加载本地恢复页 content.html：它永远能渲染（本地），探测到 duitaofang.cn 可达后再
+            // location.replace 跳过去；失败则自动重试 + 手动“重试”按钮——根治“远程加载失败=永久白屏”。
             window.add_child(
                 WebviewBuilder::new(
                     "content",
-                    WebviewUrl::External("https://duitaofang.cn".parse().unwrap()),
+                    WebviewUrl::App("content.html".into()),
                 )
                 // 注入桌面标记 + 禁用网页式文本选择（native app 不该能拖蓝高亮，输入框除外）。
                 .initialization_script(CONTENT_INIT_JS)
