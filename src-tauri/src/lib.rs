@@ -121,6 +121,7 @@ window.__DTW_DESKTOP__ = true;
 
   // ② 新排队 / 新消息 → 原生系统通知 + 提示音（桌面端轮询，复用后台已有接口）
   var lastWaiting = null, lastUnread = null, started = false;
+  var qWaiting = 0, qUnread = 0, qNames = [];
   function authToken() { try { return (JSON.parse(localStorage.getItem('dtw_auth') || '{}') || {}).token || ''; } catch (e) { return ''; } }
   function curMid() { try { return localStorage.getItem('dtw_last_workspace_id') || ''; } catch (e) { return ''; } }
   function ding() {
@@ -155,6 +156,8 @@ window.__DTW_DESKTOP__ = true;
   function emitTray(count, names) {
     try { var E = window.__TAURI__ && window.__TAURI__.event; if (E) E.emit('dtw://tray', { count: count, names: names || [] }); } catch (e) {}
   }
+  // 托盘"需要关注"= 排队人数 + 未读消息；任一>0 即闪烁。号来了(qWaiting>0)就闪。
+  function pushTray() { emitTray(qWaiting + qUnread, qNames); }
   function poll() {
     var t = authToken(), m = curMid(); if (!t || !m) return;
     var h = { 'Authorization': 'Bearer ' + t };
@@ -163,6 +166,7 @@ window.__DTW_DESKTOP__ = true;
       var w = (d.summary && typeof d.summary.waiting_count === 'number') ? d.summary.waiting_count : (typeof d.waiting_count === 'number' ? d.waiting_count : 0);
       if (lastWaiting !== null && w > lastWaiting) { alertNew('新顾客排队', '有 ' + (w - lastWaiting) + ' 位新顾客取号，去看看'); }
       lastWaiting = w;
+      qWaiting = w; pushTray(); // 排队人数驱动托盘闪烁
     }).catch(function () {});
     fetch('/api/b/' + m + '/im/summary', { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
       if (!d) return;
@@ -170,19 +174,38 @@ window.__DTW_DESKTOP__ = true;
       if (lastUnread !== null && u > lastUnread) { alertNew('新消息', '有顾客给你发来消息'); }
       lastUnread = u;
       // 托盘闪烁 + 悬浮看是谁：有未读就拉一次未读会话拿发信人名字，没有就清零
+      qUnread = u;
       if (u > 0) {
         fetch('/api/b/' + m + '/im/conversations?has_unread=1', { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).then(function (cd) {
           var names = [];
           if (cd && cd.conversations) { names = cd.conversations.map(function (cv) { return (cv && (cv.user_name || cv.title)) || '顾客'; }).slice(0, 5); }
-          emitTray(u, names);
-        }).catch(function () { emitTray(u, []); });
+          qNames = names; pushTray();
+        }).catch(function () { qNames = []; pushTray(); });
       } else {
-        emitTray(0, []);
+        qNames = []; pushTray();
       }
     }).catch(function () {});
   }
   function start() { if (started) return; started = true; poll(); setInterval(poll, 12000); }
   var wait = setInterval(function () { if (authToken() && curMid()) { clearInterval(wait); start(); } }, 3000);
+
+  // 诊断("点不动"排查):按住 Alt 右键 → 弹出该点最顶层元素 + z-index。
+  // 普通右键不触发,不打扰正常使用;只为定位"是谁盖住了侧边栏"。
+  document.addEventListener('contextmenu', function (e) {
+    if (!e.altKey) return;
+    e.preventDefault();
+    try {
+      var el = document.elementFromPoint(e.clientX, e.clientY);
+      if (!el) { alert('该位置没有元素'); return; }
+      var cs = getComputedStyle(el);
+      var info = '标签: ' + el.tagName
+        + '\nclass: ' + String(el.className || '').slice(0, 140)
+        + '\nz-index: ' + cs.zIndex
+        + '\nposition: ' + cs.position
+        + '\npointer-events: ' + cs.pointerEvents;
+      alert('盖在最上面的元素:\n\n' + info);
+    } catch (err) { alert('诊断失败: ' + err); }
+  }, true);
 })();
 "#;
 
