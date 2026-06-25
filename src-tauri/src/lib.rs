@@ -124,11 +124,21 @@ window.__DTW_DESKTOP__ = true;
   var qWaiting = 0, qUnread = 0, qNames = [];
   function authToken() { try { return (JSON.parse(localStorage.getItem('dtw_auth') || '{}') || {}).token || ''; } catch (e) { return ''; } }
   function curMid() { try { return localStorage.getItem('dtw_last_workspace_id') || ''; } catch (e) { return ''; } }
-  function ding() {
-    // 两声"叮咚"（高→低，钟鸣感），类微信但不一样
+  // 共享 AudioContext：webview autoplay 限制下首次需用户手势才出声；用户一交互就 resume，
+  // 之后叫号提示音才稳定可响（否则首次 ding 静默 = "没声音"）。
+  var sharedAC = null;
+  function getAC() {
     try {
-      var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
-      var c = new AC();
+      if (!sharedAC) { var AC = window.AudioContext || window.webkitAudioContext; if (AC) sharedAC = new AC(); }
+      if (sharedAC && sharedAC.state === 'suspended') { sharedAC.resume(); }
+    } catch (e) {}
+    return sharedAC;
+  }
+  ['pointerdown', 'keydown'].forEach(function (ev) { document.addEventListener(ev, function () { getAC(); }, true); });
+  function ding() {
+    // 两声"叮咚"（高→低，钟鸣感）
+    try {
+      var c = getAC(); if (!c) return;
       function tone(freq, start, dur, peak) {
         var o = c.createOscillator(), g = c.createGain();
         o.type = 'sine'; o.frequency.value = freq; o.connect(g); g.connect(c.destination);
@@ -151,7 +161,11 @@ window.__DTW_DESKTOP__ = true;
       });
     } catch (e) {}
   }
-  function alertNew(title, body) { notify(title, body); ding(); }
+  // 任务栏闪烁(像 QQ/微信)：新单/新消息时通知原生请求"用户注意"。窗口没聚焦才闪、聚焦后系统自动停。
+  function emitAttention() {
+    try { var E = window.__TAURI__ && window.__TAURI__.event; if (E) E.emit('dtw://attention', {}); } catch (e) {}
+  }
+  function alertNew(title, body) { notify(title, body); ding(); emitAttention(); }
   // 把未读数 + 发信人名字推给原生托盘（驱动闪烁 + 悬浮看是谁）
   function emitTray(count, names) {
     try { var E = window.__TAURI__ && window.__TAURI__.event; if (E) E.emit('dtw://tray', { count: count, names: names || [] }); } catch (e) {}
@@ -186,7 +200,31 @@ window.__DTW_DESKTOP__ = true;
       }
     }).catch(function () {});
   }
-  function start() { if (started) return; started = true; poll(); setInterval(poll, 12000); }
+  // 实时：连 WebSocket(/ws 订阅 merchant:<mid>)，收到任何变更就立刻核对计数(poll 内部比较，只在真新增时响+闪)。
+  // 替掉 12s 轮询；断线 3s 重连；另留 60s 慢轮询兜底(WS 断线期间不漏)；切换门店重连到新 topic。
+  var ws = null, wsRetry = null, wsMid = '', pollDeb = null;
+  function debouncedPoll() { if (pollDeb) return; pollDeb = setTimeout(function () { pollDeb = null; poll(); }, 400); }
+  function connectWS() {
+    var t = authToken(), m = curMid(); if (!t || !m) return;
+    wsMid = m;
+    try {
+      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(proto + '//' + location.host + '/ws?token=' + encodeURIComponent(t) + '&topics=' + encodeURIComponent('merchant:' + m));
+      ws.onmessage = function () { debouncedPoll(); };
+      ws.onclose = function () { ws = null; if (wsRetry) clearTimeout(wsRetry); wsRetry = setTimeout(connectWS, 3000); };
+      ws.onerror = function () { try { ws.close(); } catch (e) {} };
+    } catch (e) { if (wsRetry) clearTimeout(wsRetry); wsRetry = setTimeout(connectWS, 3000); }
+  }
+  function start() {
+    if (started) return; started = true;
+    poll();
+    connectWS();
+    setInterval(poll, 60000); // 慢轮询兜底
+    setInterval(function () { // 切换门店：mid 变 → 重置基线 + 重连到新 topic
+      var m = curMid();
+      if (m && m !== wsMid) { lastWaiting = null; lastUnread = null; try { if (ws) ws.close(); } catch (e) {} connectWS(); }
+    }, 5000);
+  }
   var wait = setInterval(function () { if (authToken() && curMid()) { clearInterval(wait); start(); } }, 3000);
 
   // 诊断("点不动"排查):按住 Alt 右键 → 弹出该点最顶层元素 + z-index。
@@ -392,6 +430,17 @@ fn setup_desktop(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
                     unread_l.store(count, Ordering::Relaxed);
                     if let Some(tray) = h_listen.tray_by_id("main-tray") {
                         let _ = tray.set_tooltip(Some(build_tooltip(count, v.get("names"))));
+                    }
+                }
+            });
+
+            // 任务栏闪烁(像 QQ/微信)：内容 webview 在新单/新消息时 emit `dtw://attention`；
+            // 窗口没聚焦才请求"用户注意"(Windows 任务栏按钮橙闪，用户点开聚焦后系统自动停)。
+            let h_attn = app.handle().clone();
+            app.listen("dtw://attention", move |_event| {
+                if let Some(w) = h_attn.get_window("main") {
+                    if !w.is_focused().unwrap_or(false) {
+                        let _ = w.request_user_attention(Some(tauri::UserAttentionType::Critical));
                     }
                 }
             });
