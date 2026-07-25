@@ -59,26 +59,18 @@
         msg.textContent = '网络连接失败，正在自动重试…\n请检查网络后稍候，或点下方重试';
       }
 
-      // 探测：nginx/中转 可达即可（即使后端 502，静态首页仍会返回 → SPA 能加载）。
-      // 只有“整条链路都连不上”才会 reject，这时不跳转、继续重试，避免跳进白屏。
+      // 不再先用 fetch 探测：本地 tauri:// 页跨到 https 时，fetch/no-cors 在部分 WebView
+      // 或安全软件环境里会被拦截，导致明明网站可访问，却一直停在“网络失败”页。
+      // 直接导航给系统 WebView 处理；真正的页面异常交给远程 React 自愈逻辑。
       function probe() {
         if (probing) return;
         probing = true;
-        var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-        var killed = false;
-        var to = setTimeout(function () { killed = true; if (ctrl) ctrl.abort(); }, 8000);
-        var opt = { mode: 'no-cors', cache: 'no-store' };
-        if (ctrl) opt.signal = ctrl.signal;
-        fetch(REMOTE + '?_p=' + Date.now(), opt).then(function () {
-          clearTimeout(to);
-          if (killed) { probing = false; scheduleRetry(); return; }
-          // 可达 → 跳转到真正的商户后台（之后由 React 自身的自愈逻辑接管页内异常）
-          window.location.replace(REMOTE);
-        }).catch(function () {
-          clearTimeout(to);
+        window.location.replace(REMOTE);
+        // 如果导航被极端环境拦住，当前本地页仍可见，几秒后露出手动重试按钮。
+        setTimeout(function () {
           probing = false;
           scheduleRetry();
-        });
+        }, 6000);
       }
 
       function scheduleRetry() {
