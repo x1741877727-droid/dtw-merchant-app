@@ -120,7 +120,7 @@ window.__DTW_DESKTOP__ = true;
   setInterval(inject, 3000);
 
   // ② 新排队 / 新消息 → 原生系统通知 + 提示音（桌面端轮询，复用后台已有接口）
-  var lastWaiting = null, lastUnread = null, started = false;
+  var lastWaiting = null, lastUnread = null, started = false, pollGeneration = 0;
   var qWaiting = 0, qUnread = 0, qNames = [];
   function authToken() { try { return (JSON.parse(localStorage.getItem('dtw_auth') || '{}') || {}).token || ''; } catch (e) { return ''; } }
   function curMid() { try { return localStorage.getItem('dtw_last_workspace_id') || ''; } catch (e) { return ''; } }
@@ -173,9 +173,11 @@ window.__DTW_DESKTOP__ = true;
   // 托盘"需要关注"= 排队人数 + 未读消息；任一>0 即闪烁。号来了(qWaiting>0)就闪。
   function pushTray() { emitTray(qWaiting + qUnread, qNames); }
   function poll() {
+    var generation = ++pollGeneration;
     var t = authToken(), m = curMid(); if (!t || !m) return;
     var h = { 'Authorization': 'Bearer ' + t };
     fetch('/api/b/' + m + '/queue/overview', { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (generation !== pollGeneration || m !== curMid()) return;
       if (!d) return;
       var w = (d.summary && typeof d.summary.waiting_count === 'number') ? d.summary.waiting_count : (typeof d.waiting_count === 'number' ? d.waiting_count : 0);
       if (lastWaiting !== null && w > lastWaiting) { alertNew('新顾客排队', '有 ' + (w - lastWaiting) + ' 位新顾客取号，去看看'); }
@@ -183,9 +185,12 @@ window.__DTW_DESKTOP__ = true;
       qWaiting = w; pushTray(); // 排队人数驱动托盘闪烁
     }).catch(function () {});
     fetch('/api/b/' + m + '/im/summary', { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (generation !== pollGeneration || m !== curMid()) return;
       if (!d) return;
-      var u = typeof d.merchant_unread_count === 'number' ? d.merchant_unread_count : 0;
-      if (lastUnread !== null && u > lastUnread) { alertNew('新消息', '有顾客给你发来消息'); }
+      // 个人未读账本是真源。全店数只兼容旧后端，不能把其他店务的已读状态带给当前账号。
+      var u = typeof d.current_admin_unread_count === 'number' ? d.current_admin_unread_count : (typeof d.merchant_unread_count === 'number' ? d.merchant_unread_count : 0);
+      // 首次成功读取时也提示已有未读，覆盖 WebView 刚启动、WS 尚未握手完成的窗口。
+      if ((lastUnread === null && u > 0) || (lastUnread !== null && u > lastUnread)) { alertNew('新消息', '有顾客给你发来消息'); }
       lastUnread = u;
       // 托盘闪烁 + 悬浮看是谁：有未读就拉一次未读会话拿发信人名字，没有就清零
       qUnread = u;
