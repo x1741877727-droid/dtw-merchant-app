@@ -1,6 +1,6 @@
 {
   "name": "dtw-merchant-app",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "description": "极序排队 商户端（Tauri 桌面壳，加载 duitaofang.cn 商户后台）",
   "scripts": {
